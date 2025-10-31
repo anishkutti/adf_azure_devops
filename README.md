@@ -5,3 +5,7 @@
 4. Have the build yaml files in adf_publish_release folder
 
 ADF_Publish => adf_publish_release
+
+Here is the link to the sample pipeline file
+https://github.com/anishkutti/adf_azure_devops/blob/main/azure-pipeline-build-deploy.yml
+
