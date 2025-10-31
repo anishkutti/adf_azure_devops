@@ -1,0 +1,103 @@
+##########################################
+# Pipeline deploys adf_publish_release to Your-Destination-ADF
+# Requires a package.json file located in the target repository
+# DISCLAIMER
+# ============
+# Your implementation may differ. Test in non-impacting environment first and derive code relevant to your environment
+# donot run directly in any environment which impacts users
+# make relevant changes
+##########################################
+
+trigger:
+- adf_publish_release # release branch
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- script: |
+    echo "executing pipeline azure-pipeline-build.yml"
+    echo "Current directory:"
+    pwd
+    echo "List of files:"
+    ls -lR
+  displayName: 'Check current working directory and list files'
+  
+# Deploy ARM Template to Azure
+- task: AzureResourceManagerTemplateDeployment@3
+  displayName: 'Deploy ADF ARM Template'
+  inputs:
+    deploymentScope: 'Resource Group'
+    azureResourceManagerConnection: 'e.g.ServiceConn-mgid-adf-devops-stage'
+    subscriptionId: 'your-subscription-id'
+    action: 'Create Or Update Resource Group'
+    resourceGroupName: 'Your-Destination-Resource-group'
+    location: 'e.g. West US'
+    templateLocation: 'Linked artifact'
+    csmFile: '$(Build.Repository.LocalPath)/Source Devops folder e.g.ADF-...-West-Dev-01/ARMTemplateForFactory.json'
+    csmParametersFile: '$(Build.Repository.LocalPath)/ADF-..-West-Dev-01/ARMTemplateParametersForFactory_Stage.json'
+    overrideParameters: '-factoryName "Your-Destination-ADF"'
+    deploymentMode: 'Incremental'
+
+#- task: AzurePowerShell@5
+#  displayName: 'Start ADF triggers after deployment'
+#  inputs:
+#    azureSubscription: 'e.g.ServiceConn-mgid-adf-devops-stage'
+#    ScriptType: 'InlineScript'
+#    Inline: |
+#      $DataFactoryName = "Your-Destination-ADF"
+#      $ResourceGroupName = "Your-Destination-Resource-group"
+
+#      Write-Host "Starting triggers in ADF: $DataFactoryName"
+#      $triggers = Get-AzDataFactoryV2Trigger -ResourceGroupName $ResourceGroupName -DataFactoryName $DataFactoryName
+#      foreach ($trigger in $triggers) {
+#        if ($trigger.Properties.runtimeState -ne "Started") {
+#          Start-AzDataFactoryV2Trigger -ResourceGroupName $ResourceGroupName -DataFactoryName $DataFactoryName -Name $trigger.Name -Force
+#          Write-Host "Started trigger: $($trigger.Name)"
+#        }
+#      }
+#    azurePowerShellVersion: 'LatestVersion'
+
+- task: AzureCLI@2
+  displayName: 'Trigger Time update from json'
+  inputs:
+    azureSubscription: 'e.g.ServiceConn-mgid-adf-devops-stage'   
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+
+      set -e  # Stop on first error
+      az upgrade --yes
+
+      # Enable preview extension installation
+      az config set extension.dynamic_install_allow_preview=true
+
+      # Install Data Factory extension
+      az extension add --name datafactory
+
+      # Validate JSON file exists
+      if [ ! -f "$(System.DefaultWorkingDirectory)/Trigger_PL_GetDepartmentList.json" ]; then
+        echo "ERROR: JSON file not found!"
+        exit 2
+      fi
+
+      # stopping a trigger
+      az datafactory trigger stop \
+        --resource-group Your-Destination-Resource-group \
+        --factory-name Your-Destination-ADF \
+        --name trigger1
+
+      # update trigger time
+      az datafactory trigger update --resource-group Your-Destination-Resource-group --factory-name Your-Destination-ADF --name Trigger_PL_GetDepartmentList \
+        --set properties.pipelines[0].parameters.runTime="02:00" \
+        --set properties.recurrence.frequency="Day" \
+        --set properties.recurrence.interval=1 \
+        --set properties.recurrence.startTime="2025-10-31T02:00:00Z"
+
+      # stopping a trigger
+      az datafactory trigger start \
+        --resource-group Your-Destination-Resource-group \
+        --factory-name Your-Destination-ADF \
+        --name Trigger_PL_GetDepartmentList
+
+    workingDirectory: '$(System.DefaultWorkingDirectory)'
