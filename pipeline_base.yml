@@ -1,0 +1,247 @@
+trigger:
+- adf_release_2026_Mercury
+
+name: 2026_Mercury_$(Build.DefinitionName)_$(Build.BuildId)_$(Date:yyyyMMdd)
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+# ===============================
+# 🔹 Stage 0: Build
+# ===============================
+- stage: Build
+  displayName: 'Build and Publish Artifact'
+
+  jobs:
+  - job: BuildJob
+    displayName: 'Build Job'
+
+    steps:
+    # Step 1: Create unique folder name and save as pipeline variable
+    - script: |
+        UNIQUE_DIR="repo_$(Build.BuildId)_"
+        echo "Creating folder: $UNIQUE_DIR"
+        echo "##vso[task.setvariable variable=REPO_PATH]$UNIQUE_DIR"
+      displayName: "Generate unique folder name"
+
+    # Step 2: Checkout specific branch into that unique folder
+    - checkout: self
+      persistCredentials: true
+      clean: true
+      path: $(REPO_PATH)      # 👈 dynamic folder name here
+
+    # Step 3: Verify files
+    - script: |
+        echo "Repo checked out to: $(Pipeline.Workspace)/$(REPO_PATH)"
+        ls -lR $(Pipeline.Workspace)/$(REPO_PATH)
+      displayName: "List checked-out files"
+
+    # Step 4: Package build output
+    - script: |
+        mkdir -p $(Build.ArtifactStagingDirectory)
+        mkdir -p $(Build.ArtifactStagingDirectory)/$(REPO_PATH)
+        cp -r $(Pipeline.Workspace)/$(REPO_PATH)/* $(Build.ArtifactStagingDirectory)/$(REPO_PATH)
+        echo "Packaged build output at $(Build.ArtifactStagingDirectory)"
+        ls -lR $(Build.ArtifactStagingDirectory)/$(REPO_PATH)
+      displayName: "Copied files to $(Build.ArtifactStagingDirectory)/$(REPO_PATH)"
+
+    # Step 5: Verify files
+    - script: |
+        echo "Listing Artifacts----: $(Pipeline.Workspace)/$(REPO_PATH)"
+        ls -lR $(Build.ArtifactStagingDirectory)/$(REPO_PATH)
+      displayName: "List artifact files"
+
+    # Step 6: Publish artifact
+    - publish: $(Build.ArtifactStagingDirectory)/$(REPO_PATH)
+      artifact: drop
+      displayName: "Publish Build Artifact $(Build.ArtifactStagingDirectory)"
+
+
+# ===============================
+# 🔹 Stage 1: Deploy (requires approval)
+# ===============================
+- stage: ITG
+  displayName: '01-ITG Deploy'
+  dependsOn: Build
+  condition: succeeded()
+
+  jobs:
+  - deployment: ITG_DeployADF
+    displayName: 'Deployment Job'
+    environment: '01-ITG'   
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - script: |
+              echo "Starting deployment using files from artifact:"
+              ls -lR $(Pipeline.Workspace)/drop
+              echo "Simulating deployment..."
+            displayName: 'Deploy using published artifact'
+
+          # Deploy ARM Template to Azure
+          - task: AzureResourceManagerTemplateDeployment@3
+            displayName: '01-ITG - Deploy ADF ARM Template'
+            inputs:
+              deploymentScope: 'Resource Group'
+              azureResourceManagerConnection: 'ServiceConn-mgid-adf-devops-stage'
+              subscriptionId: 'Your Destination Subscription ID'
+              action: 'Create Or Update Resource Group'
+              resourceGroupName: 'RD-ERP-West-ITG-01'
+              location: 'West US 3'
+              templateLocation: 'Linked artifact'
+              csmFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ARMTemplateForFactory.json'
+              csmParametersFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ParameterForFactory_01_ITG.json'
+              overrideParameters: '-factoryName "ADF-ERP-West-ITG-01"'
+              deploymentMode: 'Incremental'
+            
+# ===============================
+# 🔹 Stage 2: Deploy (requires approval)
+# ===============================
+- stage: STG
+  displayName: '02-STG Deploy'
+  dependsOn: ITG
+  condition: succeeded()
+
+  jobs:
+  - deployment: ITG_DeployADF_STG
+    displayName: '02-STG deployment job'
+    environment: '02-STG'   
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - script: |
+              echo "Starting deployment using files from artifact:"
+              ls -lR $(Pipeline.Workspace)/drop
+            displayName: 'Listing files'
+
+          # Deploy ARM Template to Azure Stage
+          - task: AzureResourceManagerTemplateDeployment@3
+            displayName: 'Stage:Deploy ADF ARM Template to Stage'
+            inputs:
+              deploymentScope: 'Resource Group'
+              azureResourceManagerConnection: 'ServiceConn-mgid-adf-devops-stage'
+              subscriptionId: 'Your Destination Subscription ID'
+              action: 'Create Or Update Resource Group'
+              resourceGroupName: 'RG-ADF-ERP-West-Stage'
+              location: 'West US 3'
+              templateLocation: 'Linked artifact'
+              csmFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ARMTemplateForFactory.json'
+              csmParametersFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ParameterForFactory_02_STG.json'
+              overrideParameters: '-factoryName "ADF-ERP-West-Stage-01"'
+              deploymentMode: 'Incremental'
+                 
+
+# ===============================
+# 🔹 Stage 3: Deploy (requires approval)
+# ===============================
+- stage: PREPROD
+  displayName: '03-PRE-PROD Deploy'
+  dependsOn: STG
+  condition: succeeded()
+
+  jobs:
+  - deployment: ITG_DeployADF_PREPROD
+    displayName: '03-PRE-PROD deployment job'
+    environment: '03-PRE-PROD'   
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - script: |
+              echo "Starting deployment using files from artifact:"
+              ls -lR $(Pipeline.Workspace)/drop
+            displayName: 'Listing artifact'
+
+          # Deploy ARM Template to Azure
+          - task: AzureResourceManagerTemplateDeployment@3
+            displayName: '03-Pre-Prod - Deploy ADF ARM Template'
+            inputs:
+              deploymentScope: 'Resource Group'
+              azureResourceManagerConnection: 'ServiceConn-mgid-adf-devops-stage'
+              subscriptionId: 'Your Destination Subscription ID'
+              action: 'Create Or Update Resource Group'
+              resourceGroupName: 'RG-ERP-West-PREPROD-01'
+              location: 'West US 3'
+              templateLocation: 'Linked artifact'
+              csmFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ARMTemplateForFactory.json'
+              csmParametersFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ParameterForFactory_03_PREPROD.json'
+              overrideParameters: '-factoryName "ADF-ERP-West-PREPROD-01"'
+              deploymentMode: 'Incremental'
+
+
+# ===============================
+# 🔹 Stage 4: Deploy (requires approval)
+# ===============================
+- stage: PROD
+  displayName: '04-PROD Deploy'
+  dependsOn: PREPROD
+  condition: succeeded()
+
+  jobs:
+  - deployment: ITG_DeployADF_PROD
+    displayName: '04-PROD deployment job'
+    environment: '04-PROD'   
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - script: |
+              echo "Starting deployment using files from artifact:"
+              ls -lR $(Pipeline.Workspace)/drop
+            displayName: 'Listing artifact'
+
+          # Deploy ARM Template to Azure
+          - task: AzureResourceManagerTemplateDeployment@3
+            displayName: '04-Prod - Deploy ADF ARM Template'
+            inputs:
+              deploymentScope: 'Resource Group'
+              azureResourceManagerConnection: 'ServiceConn-mgid-adf-devops-prod'
+              subscriptionId: 'Your Destination Subscription ID'
+              action: 'Create Or Update Resource Group'
+              resourceGroupName: 'RG-ERP-West-PROD-01'
+              location: 'West US 3'
+              templateLocation: 'Linked artifact'
+              csmFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ARMTemplateForFactory.json'
+              csmParametersFile: '$(Pipeline.Workspace)/drop/ADF-ERP-West-Dev-01/ParameterForFactory_04_PROD.json'
+              overrideParameters: '-factoryName "ADF-ERP-West-PROD-01"'
+              deploymentMode: 'Incremental'
+                                  
+
+# ===============================
+# 🔹 Stage 5: Deploy (requires approval)
+# ===============================
+- stage: DR
+  displayName: '04-DR Deploy'
+  dependsOn: PREPROD
+  condition: succeeded()
+
+  jobs:
+  - deployment: ITG_DeployADF_DR
+    displayName: '05-DR deployment job'
+    environment: '05-DR'   
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - script: |
+              echo "List artifact:"
+              ls -lR $(Pipeline.Workspace)/drop
+            displayName: 'Listing artifact'
