@@ -1,11 +1,17 @@
-# adf_azure_devops
-1. Review the contents from azure-pipeline-build-deploy.yml
-2. When ready for releases, create a pull request from adf_publish to adf_publish_release (a new branch)
-3. Have your parameter_stage.json in the new branch. Use that for release
-4. Have the build yaml files in adf_publish_release folder
 
-ADF_Publish => adf_publish_release
+1)	ADF DevOps Organization
+Create ADF DevOps Organization
+Create Repo
+Grant Dev Team and Approvers access
 
-Here is the link to the sample pipeline file
-https://github.com/anishkutti/adf_azure_devops/blob/main/azure-pipeline-build-deploy.yml
+2)	Create Managed Id
+In DevOps, Create Service Connection possibly one per environment
+Associate Service Connection with Managed ID
+Grant ADF Contributor at resource Group level
 
+3)	In ADF, Associate Data Factory to Repo
+![ADF Integration](https://github.com/anishkutti/adf_azure_devops/blob/main/images/1.png)
+
+4)	Release Flow
+
+https://github.com/anishkutti/adf_azure_devops/blob/main/images/2.png
