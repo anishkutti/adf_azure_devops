@@ -16,3 +16,4 @@ Grant ADF Contributor at resource Group level
 
 ![ADF Integration Flow ](https://github.com/anishkutti/adf_azure_devops/blob/main/images/2.png)
   
+Please note: The code is demo code only
