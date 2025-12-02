@@ -1,4 +1,11 @@
-
+##########################################  
+# DISCLAIMER  
+# ============  
+# Your implementation may differ. Test in non-impacting environment first and derive code relevant to your environment  
+# donot run directly in any environment which impacts users  
+# make relevant changes  
+# Also stated in the azure-pipeline-build-deploy.yml  
+##########################################  
 1)	ADF DevOps Organization  
     * Create ADF DevOps Organization  
     * Create Repo  
